@@ -1,0 +1,61 @@
+// This is always necessary!
+Attach("blowdown.mag");
+///////////////////////////
+
+cofs:=[5,1,1,5,2,0,2,2,2,5,2,0,2,0,0,1,2,2,1,5]; // honeycomb
+//cofs:=[7,6,6,11,1,2,5,0,0,1,2,0,8,0,4,2,4,10,5,13]; // this triangulation has secondary cone with maximal number of rays 
+//cofs:=[9,3,4,16,4,0,9,0,3,0,2,0,7,1,2,2,4,7,8,15]; // this has non-planar tight span. 
+// prime to work over
+p:=5;
+// create simple cubic from cofs
+f:=cubic_with_valuations(cofs,p);
+// create cubic object -- computes the lines p-adically, chooses a marking on the lines, computes the corresponding blowdown map and the plane cubics giving the inverse blowup map.
+time S:=pAdicCubicSurface(f,p);
+// Look at the valuations of the coefficient vector of the cubics defining the blowup
+[valuation_of_form(form) : form in S`blowup_cubics];
+// Look at the valuations of the six points that are blown-up
+pts:=blowdown_lines(S`marking); [[Valuation(p) : p in pt] : pt in pts];
+
+// Splittings
+splits:=[tropicalize_line_in_cubic(S,i) : i in [1..27]]; [#s : s in splits];
+// statistics
+SetToMultiset([encode_split(split) : split in splits]);
+
+// perturb the base points
+g,newpts,cubs,err:=perturb(S,14 : internal_precision:=20);  // smaller numbers give smaller representations
+#Sprint(g);
+// depending on the labelling, the following may work to give a smaller example
+g,newpts,cubs,err:=perturb(S,8 : internal_precision:=10);
+#Sprint(g);
+
+
+
+///
+// Other features
+///
+
+
+// Finding distinct valued permutations of base points
+perms:=distinct_valued_permutations(S); // stores the modified cubics, and valuations of coefficients
+#perms; // number of permutations possible
+[p[#p] : p in perms]; // the valuations of the cubics in each case
+
+// what the output looks like, using internal numbering and names
+tropicalize_line_in_cubic(S,1);
+
+// You can compute splittings even when blowup/blowdown is not possible to compute
+// as long as all 27 lines are defined over Qp
+// The option with_blowup:=false is required
+p:=5;
+cofs:=[5,1,1,5,2,0,2,2,2,5,2,0,2,0,0,1,2,2,1,5]; // honeycomb
+f:=cubic_with_valuations(cofs,p);
+time S:=pAdicCubicSurface(f,p : with_blowup:=false); // default precision 2000, tolerance 1500
+splits:=[tropicalize_line_in_cubic(S,i) : i in [1..27]]; [#s : s in splits];
+SetToMultiset([encode_split(split) : split in splits]);
+
+
+// You can use this to a cubic you write down manually
+R<x,y,z,w>:=PolynomialRing(Rationals(),4);
+f:=4*w^2*x + w*x*y + w*x*z + 2*w*y*z + w*z^2 + 8*x^2*y + 2*x*y*z + y^2*z;
+// if f is not tropically smooth, the current implementation of blowup will fail
+S:=pAdicCubicSurface(f,2: with_blowup:=false);

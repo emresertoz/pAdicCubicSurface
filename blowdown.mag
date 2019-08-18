@@ -1,0 +1,973 @@
+//cofs:=[5,1,1,5,2,0,2,2,2,5,2,0,2,0,0,1,2,2,1,5]; // honeycomb
+//cofs:=[7,6,6,11,1,2,5,0,0,1,2,0,8,0,4,2,4,10,5,13]; // this triangulation has secondary cone with maximal number of rays 
+//cofs:=[9,3,4,16,4,0,9,0,3,0,2,0,7,1,2,2,4,7,8,15]; // this has not planar tight span. 
+
+intrinsic valuation_of_cubic(cubic_form::RngMPolElt,prime::RngIntElt) -> SeqEnum
+{The monomials of a cubic surface ordered to be compatible with Polymake.}
+  R:=Parent(cubic_form);
+  exps:=[[1,0,0,0], [1,0,0,1], [1,0,0,2], [1,0,0,3], [1,0,1,0], [1,0,1,1], [1,0,1,2], [1,0,2,0], [1,0,2,1], [1,0,3,0], [1,1,0,0], [1,1,0,1], [1,1,0,2], [1,1,1,0], [1,1,1,1], [1,1,2,0], [1,2,0,0], [1,2,0,1], [1,2,1,0], [1,3,0,0]]; 
+  exps:=[ e[2..4] : e in exps];
+  exps:=[ [3-&+e] cat e : e in exps];
+  mons:=[Monomial(R,e) : e in exps];
+  vals:=[Valuation(MonomialCoefficient(cubic_form,m),prime) : m in mons];
+  min:=Minimum(vals);
+  return [v-min : v in vals];
+end intrinsic;
+
+intrinsic valuation_of_cubic(cubic_form::RngMPolElt) -> SeqEnum
+{The monomials of a cubic surface ordered to be compatible with Polymake.}
+  R:=Parent(cubic_form);
+  exps:=[[1,0,0,0], [1,0,0,1], [1,0,0,2], [1,0,0,3], [1,0,1,0], [1,0,1,1], [1,0,1,2], [1,0,2,0], [1,0,2,1], [1,0,3,0], [1,1,0,0], [1,1,0,1], [1,1,0,2], [1,1,1,0], [1,1,1,1], [1,1,2,0], [1,2,0,0], [1,2,0,1], [1,2,1,0], [1,3,0,0]]; 
+  exps:=[ e[2..4] : e in exps];
+  exps:=[ [3-&+e] cat e : e in exps];
+  mons:=[Monomial(R,e) : e in exps];
+  vals:=[Valuation(MonomialCoefficient(cubic_form,m)) : m in mons];
+  min:=Minimum(vals);
+  return [v-min : v in vals];
+end intrinsic;
+
+intrinsic valuation_of_form(form::RngMPolElt) -> SeqEnum
+{
+  Returns the valuation vector of the coefficients of a form in a multivariate polynomial ring. Uses all monomials of the appropriate degree. 
+}
+  R:=Parent(form); d:=Degree(form);
+  mons:=MonomialsOfDegree(R,d);
+  cofs:=[ MonomialCoefficient(form,m) : m in mons];
+  return [Valuation(c) : c in cofs];
+end intrinsic;
+
+
+pAdicMarkedCubic:=recformat<equation:RngMPolElt,lines:SeqEnum,field:FldPad,marking:SeqEnum,adjacency:GrphUnd,e:SeqEnum,q:SeqEnum,l:SeqEnum,blowdown:UserProgram,p:RngIntElt,precision:RngIntElt,tolerance:RngIntElt,comments:MonStgElt,blowup:UserProgram,blowup_cubics:SeqEnum,is_zero:UserProgram,valuate:UserProgram,valuate_no_inf:UserProgram,points:SeqEnum>;
+
+intrinsic cubic_with_valuations(valuation_vector::SeqEnum, prime::RngIntElt) -> RngMPolElt
+{
+  Takes as input Polymake's encoding for the valuation of the coefficients of a cubic form in four variables. Generates a simple cubic with those valuations.
+}
+  R<w,x,y,z>:=PolynomialRing(Rationals(),4);
+  exps:=[[1,0,0,0], [1,0,0,1], [1,0,0,2], [1,0,0,3], [1,0,1,0], [1,0,1,1], [1,0,1,2], [1,0,2,0], [1,0,2,1], [1,0,3,0], [1,1,0,0], [1,1,0,1], [1,1,0,2], [1,1,1,0], [1,1,1,1], [1,1,2,0], [1,2,0,0], [1,2,0,1], [1,2,1,0], [1,3,0,0]]; 
+  exps:=[ e[2..4] : e in exps];
+  exps:=[ [3-&+e] cat e : e in exps];
+  mons:=[Monomial(R,e) : e in exps];
+  cofs:=valuation_vector;
+  return &+[ prime^cofs[i]*mons[i] : i in [1..#mons]];
+end intrinsic;
+
+intrinsic pAdicCubicSurface(cubic_equation::RngMPolElt, prime::RngIntElt : with_lines:=true, with_marking:=true, with_blowup:=true, precision:=3000, tolerance:=Ceiling(0.75*precision)) -> Rec
+{
+  Create a pAdicMarkedCubic object: compute the lines numerically and randomly assign a marking (this marking is easily changed). Computes the blow-down map too. During computations, a p-adic nubmer with valuation greater than tolerance is considered zero. 
+}
+
+assert tolerance lt precision;
+
+  return pAdicCubicSurface(cubic_equation,precision,tolerance,prime : with_lines:=with_lines, with_marking:=with_marking, with_blowup:=with_blowup);
+
+end intrinsic
+
+intrinsic pAdicCubicSurface(cubic_equation::RngMPolElt,precision::RngIntElt,tolerance::RngIntElt, prime::RngIntElt : with_lines:=true, with_marking:=true, with_blowup:=true) -> Rec
+{Create a pAdicMarkedCubic object: compute the lines numerically and randomly assign a marking (this marking is easily changed). Computes the blow-down map too. During computations, a p-adic nubmer with valuation greater than tolerance is considered zero. Therefore, tolerance should be less than precision of the p-adic field.}
+  assert IsPrime(prime);
+  assert Degree(cubic_equation) eq 3;
+  assert IsHomogeneous(cubic_equation);
+  assert Ngens(Parent(cubic_equation)) eq 4;
+  assert IsNonsingular(Scheme(Proj(Parent(cubic_equation)),cubic_equation)); // cubic surface should be smooth
+  assert tolerance lt precision;
+  assert not(with_marking and not with_lines); // marking is not possible without lines
+  assert not(with_blowup and not with_marking); // blowup cannot be done without blowdown, which requires markings
+
+  Qp:=pAdicField(prime:Precision:=precision); 
+  is_zero:=func<a| Valuation(Qp!a) gt tolerance>;
+  S:=rec<pAdicMarkedCubic|equation:=cubic_equation,precision:=precision, tolerance:=tolerance, p:=prime, field:=Qp, is_zero:=is_zero, valuate:=func<a| is_zero(a) select Infinity() else Valuation(a)>, valuate_no_inf:=func<a| is_zero(a) select precision else Valuation(a)>>;
+
+  if with_lines then
+    print "Computing lines";
+    S`lines,S`adjacency:=get_pAdic_lines(S`equation,S`precision,S`tolerance,S`p);
+  end if;
+  
+  if with_marking then
+   // we can only enter this clause when with_lines is true
+   print "Computing blowdown";
+   S`marking:=find_a_marking(S`adjacency); 
+   S`e,S`q,S`l:=label_all_lines(S`marking);
+   blowdown:=get_blowdown_map(S`marking,S`tolerance); // this should be very fast
+   S`blowdown:=func<pt|homogenize_coordinate(blowdown(pt),S`tolerance)>;
+   S`points:=blowdown_lines(S`marking);
+  end if;
+
+  if with_blowup then
+    print "Computing blowup";
+    // we can only enter this clause when with_marking is true
+    S`blowup,S`blowup_cubics:=get_blowup_map(S);
+  end if;
+
+  return S; 
+end intrinsic;
+
+intrinsic compute_pAdic_lines(S::Rec)  -> Any
+{
+  Takes the output of pAdicCubicSurface (a record of format pAdicMarkedCubic). Computes the equations for the 27 lines inside it.
+}
+  lines,G:=get_pAdic_lines(S`equation,S`precision,S`tolerance,S`p);
+  S`lines:=lines;
+  S`adjacency:=G;
+  return S;
+end intrinsic;
+
+intrinsic get_pAdic_lines(cubic_equation::RngMPolElt,precision::RngIntElt,tolerance::RngIntElt, prime::RngIntElt) -> Any, Any
+{
+  Outputs the lines in this cubic and their adjacency graph over the p-adic field with specified precision. Anything with valuation greater than tolerance is assumed to be zero.
+}
+  f:=cubic_equation;
+  // we put f in general position to simplify solving for lines
+  // we will bring back the solutions to their original positions
+  attemptnumber:=0;
+  mat:=IdentityMatrix(Rationals(),4);
+  repeat 
+    if attemptnumber gt 0 then
+      repeat
+          mat:=Matrix(4,4,[Rationals()|Random(-5,5) : i in [1..16]]); 
+      until Determinant(mat) ne 0;
+    end if;
+    attemptnumber+:=1;
+    print "Attempt Number: "*Sprint(attemptnumber);
+    fgen:=Evaluate(f,[ &+[ mat[i,j]*Parent(f).j : j in [1..4]] : i in [1..4]]);
+    // Grassmanian Chart
+    // 1 0 x1 x2
+    // 0 1 y1 y2
+    T<x1,x2,y1,y2>:=PolynomialRing(Rationals(),4);
+    S<u,v>:=PolynomialRing(T,2);
+    I:=Ideal(Coefficients(Evaluate(fgen,[u,v,u*x1+v*y1,u*x2+v*y2])));
+    //print "Computing a GroebnerBasis";
+    //time gb:=GroebnerBasis(I);
+    gb:=GroebnerBasis(I);
+    // if these conditions fail the basis is not generic
+    // that is lines may project to the same coordinates
+    print "Degree of I";
+    print Degree(Scheme(Spec(T),I));
+    degmat:=Matrix([ [Degree(g,i) : i in [1..Ngens(T)]]  : g in gb]);
+    cond1:=#gb eq Ngens(T);
+    print Submatrix(degmat,1,1,Ngens(T)-1,Ngens(T)-1);
+    cond2:=Submatrix(degmat,1,1,Ngens(T)-1,Ngens(T)-1) eq 1;
+    cond3:=Degree(gb[#gb]) eq 27;
+  until cond1 and cond2 and cond3;
+  Qp:=pAdicField(prime:Precision:=precision);
+  isAlmostZero:=func<padic_number|Valuation(padic_number) gt tolerance>;
+  polys:=[ Evaluate(gb[i],[j eq Ngens(T) select T.j else 0 : j in [1..Ngens(T)]]) : i in [1..#gb]];
+  upolys:=[];
+  for i in [1..#polys] do
+    _,upolys[i]:=IsUnivariate(polys[i]);
+  end for;
+  U:=PolynomialRing(Qp);
+  //print "Factorizing univariate polynomial:";
+  roots:=Roots(U!upolys[#upolys]);
+  // just making sure lines appear with multiplicity one
+  assert &and[r[2] eq 1 : r in roots];
+  roots:=[r[1]: r in roots];
+  solutions:=[ [-Evaluate(p,r) : p in upolys[1..(Ngens(T)-1)]] cat [r] : r in roots]; 
+  // Carry back the solutions:
+  matQp:=ChangeRing(mat,Qp);
+  lines:=[ Matrix(2,4, [1,0,s[1],s[2],0,1,s[3],s[4]]): s in solutions];
+  lines:=[ l*Transpose(matQp)  : l in lines];
+  adjacency_matrix:=ZeroMatrix(Integers(),27,27);
+    for i,j in [1..27] do
+      if i ne j then
+      adjacency_matrix[i,j]:=isAlmostZero(Determinant(VerticalJoin(lines[i],lines[j]))) select 1 else 0;
+      end if;
+    end for;
+  G:=Graph<27| adjacency_matrix>;
+  AssignLabels(~G,Vertices(G),lines);
+  // following check should ensure we have the correct intersection matrix
+  // the method above can only declare a false positive (needs proof)
+  // assert &+Eltseq(adjacency_matrix) eq 270;
+  assert &and[#Neighbours(v) eq 10 : v in Vertices(G)];
+  return lines,G;
+end intrinsic;
+
+
+intrinsic find_a_marking(G::GrphUnd) -> Any
+{
+  Takes the adjacency graph of a cubic (with labels containing the lines). Outputs six vertices of the graph representing six skew lines.
+}
+  verts:=Vertices(G);
+  // find 6 disjoint lines
+  // we will blow them down
+  repeat
+    success:=true;
+    e:=[Random(verts)];
+    repeat
+      exclude:=Seqset(e) join &join([Neighbours(v) : v in e]);
+      vv:=verts diff exclude;
+      if #vv gt 0 then
+        Append(~e,Random(vv));
+      else
+        success:=false;
+        break;
+      end if;
+    until #e eq 6;
+  until success;
+  return e;
+end intrinsic;
+
+// takes as input the output of find_a_marking(G)
+intrinsic label_all_lines(marking::SeqEnum) -> Any, Any, Any
+{
+  Takes six skew lines (given as vertices of an adjacency graph) and labels the remaining lines of the cubic.
+}
+  e:=marking;
+  // construct the q's : these are the lines that appear as quadrics passing through 5 of the six base points
+  q:=[ Representative(&meet[Neighbours(ej) : ej in Exclude(e,ei)]) : ei in e];
+  //construct the l's
+  // these are the lines which blow down to lines passing through two base points
+  l:=[];
+  // the index remembers the pairs of base points
+  l_index:=[];
+  for i,j in [1..6] do
+    if j le i then continue; end if;
+    ei:=e[i]; ej:=e[j]; Append(~l_index,{ei,ej});
+    inside:=Neighbours(ei) meet Neighbours(ej);
+    others:=Exclude(Exclude(e,ei),ej);
+    outside:=&join([Neighbours(ee) : ee in others]);
+    lij:=inside diff outside;
+    assert #lij eq 1;
+    Append(~l,Representative(lij));
+  end for;
+  // for easy access
+  lij:=func<i,j | l[Index(l_index,{e[i],e[j]})]>;
+  assert #Seqset(e cat q cat l) eq 27;
+  // make lij into a symmetric table with undefined diagonals
+  l_table:=[];
+  for i in [1..6] do
+    li:=[];
+    for j in [1..6] do;
+      if i eq j then continue; end if;
+      li[j]:=lij(i,j);
+    end for;
+    Append(~l_table,li);
+  end for;
+  return e,q,l_table;
+end intrinsic;
+
+intrinsic span(line1::Any,line2::Any) -> SeqEnum
+{
+  Takes two lines, as vertices of the adjacency graph. Outputs the coefficient list of the hyperplane they span.
+}
+  assert line1 in Neighbours(line2);
+  assert line1 ne line2;
+  linemat:=VerticalJoin(Label(line1),Label(line2));
+  plane:=Basis(Kernel(Transpose(linemat)))[1];
+  return plane;
+end intrinsic;
+
+
+intrinsic span_w_point(line::Any,point::Any) -> SeqEnum
+{
+  Takes a line as vertex of adjacency graph. Takes a point in P3. Outputs the coefficient list of the plane containing both, provided such a plane is unique.
+}
+  F:=Parent(Label(line)[1,1]);
+  pt:=[F!pt_coord : pt_coord in Eltseq(point)];
+  linemat:=VerticalJoin(Label(line),Matrix([pt]));
+  assert Rank(linemat) eq 3; // the point is not on the line
+  plane:=Basis(Kernel(Transpose(linemat)))[1];
+  return plane;
+end intrinsic;
+
+
+// takes the output of find_a_marking
+// returns the valuation of the points to which e5 and e6 blows down to
+intrinsic blowdown_lines(marking::SeqEnum) -> Any
+{
+  Takes a marking and returns the matrix of x,y coordinates of the 5th and 6th points. The first four points are put in generic position.
+}
+  e,q:=label_all_lines(marking);
+  F:=Parent(Label(e[1])[1,1]);
+  A:=[];
+  for j in [1,2] do
+    planes:=[span(q[j],e[i]) : i in [1..6] | i ne j];
+    P1coords:=[];
+    for i in [3..5] do
+      b:=Eltseq(Basis(Kernel(Matrix([-planes[i],planes[1],planes[2]])))[1]);
+      Append(~P1coords,b[2]/b[3]);
+    end for;
+    A[j]:=[P1coords[4-2]/P1coords[3-2],P1coords[5-2]/P1coords[3-2]];
+  end for;
+  A:=Matrix([A[2],A[1]]); // swap to get the x and y coordinates in place
+  A:=Transpose(A); // first row is the coordinates of p5, second row is coord of p6
+  p5:=[A[1,1],A[1,2],1];
+  p6:=[A[2,1],A[2,2],1];
+  return [[F|1,0,0],[F|0,1,0],[F|0,0,1],[F|1,1,1],p5,p6];
+end intrinsic;
+
+intrinsic point_on_line(point::Any,line::Any) -> BoolElt
+{
+  Checks if the given point is contained in the line. Line is given as a vertex of the adjacency graph.
+}
+  F:=Parent(Label(line)[1,1]);
+  pt:=[F!pt_coord : pt_coord in Eltseq(point)];
+  linemat:=VerticalJoin(Label(line),Matrix([pt]));
+  return Rank(linemat) eq 2;
+end intrinsic;
+
+intrinsic project_from_qi(marking::SeqEnum,i::RngIntElt,point::SeqEnum) -> SeqEnum
+{
+  Assuming i equals 1,2 or 3, and the point in P3 is not on qi or on ei, we compute the homogeneous coordinates of the result of blowing down the point and then projecting it from pi. The result is calibrated so that e4 ends up in [1:1]. 
+}
+  assert i in [1,2,3];
+  e,q:=label_all_lines(marking);
+  assert not point_on_line(point,q[i]); // this is not well defined
+  assert not point_on_line(point,e[i]); // this is well defined but meaningless
+  planes:=[span(q[i],e[j]) : j in [1..4] | j ne i ]; 
+  // planes[3] is always span(qi,e4), we use that to calibrate the homogeneous coordinates
+  // calibrate = [u:v], the result of projecting e4. We will scale by the inverses of u and v.
+  calibrate:=Eltseq(Basis(Kernel(Matrix([-planes[3],planes[1],planes[2]])))[1])[2..3]; 
+  // now we compute projection of the plane spanned by qi and point
+  new_plane:=span_w_point(q[i],point);
+  project:=Eltseq(Basis(Kernel(Matrix([-new_plane,planes[1],planes[2]])))[1])[2..3]; 
+  return [project[1]/calibrate[1], project[2]/calibrate[2]];
+end intrinsic;
+
+intrinsic get_blowdown_map(marking::SeqEnum, tolerance::RngIntElt) -> Any 
+{
+  Outputs the blow-down map which takes points as input and outputs the numerical coordinates of its blow-down. You are responsible for checking that the input points belong to the cubic.
+}
+  e,q:=label_all_lines(marking);
+  planes:=[[span(q[j],e[i]) : i in [1..4] | i ne j ] : j in [1,2,3]];
+  marked_points:=blowdown_lines(marking);
+  //Qp:=Parent(Label(e[1])[1,1]);
+  function blowdown(point)
+    // if point is on an ei, then we use a previous function to find pi 
+    // not very efficient because we compute all pi's again, but this is fast anyway
+    for i in [1..6] do
+      if point_on_line(point,e[i]) then
+        return marked_points[i];  
+      end if;
+    end for;
+    // if the point is on a qk, then we can't project from qk, so we need to find this out
+    // the upside is, now, point is not on any ei, if it is on qk then its k-th coordinate of its blow-down in P2 can not be zero
+    // Note: qk's are skew.
+    on_q:=[];
+    for k in [1,2,3] do
+      if point_on_line(point,q[k]) then on_q[k]:=true;
+      else on_q[k]:=false;
+      end if;
+    end for;
+    // we are going to create a table of elements:
+    // undef x2    x3
+    // x1    undef x3
+    // x1    x2    undef
+    // where [xi:xj] is the result of projecting the blowdown of point from pk , k not i or j
+    // IF point is on qk, then the k-th row will be left undefined
+    projections:=[];
+    for k in [1,2,3] do
+      if on_q[k] then continue; end if; // skip the k-th projection step
+      i,j:=Explode(Exclude([1,2,3],k));
+      xixj:=project_from_qi(marking,k,point);
+      pr:=[];
+      pr[i]:=xixj[1]; pr[j]:=xixj[2];
+      projections[k]:=pr;
+    end for;
+    // now find an index for which the corresponding coordinate of blowdown of point in P2 is non-zero
+    // this is necessary to be able to reconstruct the coordinates from the projections matrix
+    if &or(on_q) then
+      index:=case<true| on_q[1]:1, on_q[2]:2, default:3>;
+    else // every row of the projections matrix is defined
+      // at most one index can be zero, as pt is not on any ei
+      // if third index gives zero we take index equal to two
+      if Valuation(projections[1,3]) gt tolerance then index:=2; 
+      // otherwise we take the third index
+      else index:=3;
+      end if;
+    end if;
+    // construct the coordinates of the blowdown
+    coordinates:=[];
+    for i in [1,2,3] do
+      if i eq index then 
+        coordinates[i] := 1; continue;
+      end if;
+      // j not i or index
+      j:=Representative({1,2,3} diff {index,i});
+      // use the j-th row of projections table, remember x_index is non-zero
+      coordinates[i]:=projections[j,i]/projections[j,index];
+    end for;
+    return coordinates;
+  end function;
+  return blowdown;
+end intrinsic;
+
+//trop_hom:=func<vect | [v-vect[1] : v in vect]>;
+//min_zero:=func<vect | [v-Minimum(vect) : v in vect]>;
+//valstopow:=func<vect : base:=2 | [IsFinite(v) select base^v else 0 : v in vect]>;
+intrinsic trop_hom(vector::SeqEnum : i:=1) -> SeqEnum
+{
+  Sets the i-th entry of the vector to be zero, by translating every entry by -vector[i]. Default value of i is 1.
+}
+  return [v-vector[1] : v in vector];
+end intrinsic;
+
+intrinsic min_zero(vector::SeqEnum) -> SeqEnum
+{
+  Translates the entries of the vector by the negative of the smallest element. Output has minimal element equal to 0.
+}
+  min:=Minimum(vector);
+  return [v-min : v in vector];
+end intrinsic;
+
+intrinsic valuations_to_powers(vector::SeqEnum : base:=2) -> SeqEnum
+{
+  Takes a sequence of integers and outputs a sequence of base taken to the given integers.
+}
+  return [base^v : v in vector];
+end intrinsic;
+
+/////////////
+// Blow-up //
+/////////////
+
+intrinsic points_on_coordinate_line(S::Rec,ij::SetEnum) -> SetEnum
+{
+  Computes points on the coordinate line xi=xj=0 on the cubic surface. If S is a tropically smooth cubic, then there should be exactly three points defined over the base field.
+}
+  f:=S`equation;
+  R:=Parent(f); 
+  i,j:=Explode(Sort(Setseq(ij))); // i < j
+  k,l:=Explode(Sort(Setseq({1,2,3,4} diff ij))); // k < l
+  // Set R.i=R.j=0, then dehomogenize
+  fij:=Evaluate(f,[case<s|k:R.k,l:1,default:0> : s in [1..4]]); 
+  _,fij:=IsUnivariate(fij);
+  roots:=[ root[1] : root in Roots(fij,S`field)];
+  assert #roots eq 3;
+  pts:=[[case<s | k:root, l:1, default:0> : s in [1..4]] : root in roots];
+  return Seqset(pts);
+end intrinsic;
+
+intrinsic points_on_coordinate_cubics(S::Rec) -> SeqEnum
+{
+  Computes points on the intersection of S with each of the coordinate planes xi=0, using coordinate lines.
+}
+  coord_pairs:=[{i,j} : i,j in [1..4] | i lt j];
+  pts:=[[*ij,points_on_coordinate_line(S,ij)*] : ij in coord_pairs];
+  point_cluster:=[];
+  for i in [1..4] do
+    point_cluster[i]:=Setseq(&join[ pp[2] : pp in pts | i in pp[1]]);
+  end for;
+  return point_cluster;
+end intrinsic;
+
+intrinsic reconstruct_form(points::SeqEnum,degree_of_form::RngIntElt) -> RngMPolElt,SeqEnum
+{
+  Given a sequence of points in Pn (each point is a sequence) compute the unique homogeneous form of degree degree_of_form passing through these points (provided it exists and is unique). As an optional second return value, we give the sequence of values which the form attains at each of the given points.
+}
+  fld:=Parent(points[1,1]);
+  ngens:=#points[1];
+  R<[v]>:=PolynomialRing(fld,ngens);
+  mons:=Setseq(MonomialsOfDegree(R,degree_of_form));
+  mat:=Matrix([[ Evaluate(m,pt) : pt in points] : m in mons]);
+  B:=Basis(Kernel(mat));
+  assert #B eq 1; // otherwise form is not uniquely defined
+  b:=[fld| bb : bb in Eltseq(B[1])];
+  form:=&+[ b[i]*mons[i] : i in [1..#mons]];
+  return form , [Evaluate(form,pt) : pt in points];
+end intrinsic;
+
+intrinsic homogenize_coordinate(point::SeqEnum,tolerance::RngIntElt) -> SeqEnum
+{
+  Given a sequence of values over a non-exact field with valuation, scale the sequence so that the first non-zero coordinate is one. An element is considered zero if it has valuation greater than tolerance.
+}
+  i:=0;
+  repeat
+    i+:=1;
+    if i gt #point then return [Parent(point[1])|0 : i in [1..#point]]; end if;
+  until Valuation(point[i]) le tolerance;
+  return [p/point[i] : p in point];
+end intrinsic;
+
+intrinsic get_blowup_map(S::Rec : check_answer:=true) -> Any,SeqEnum
+{
+  Returns a function mapping points from P2 to points in P3 with image S. We also return the list of cubics used for this function. (Note: As we are working over non-exact fields, Magma does not permit the construction of projective spaces or maps between them.)
+}
+  // blowup is given by four cubics in the plane, we need to find the equations of these cubics
+  // first we find points on coordinate cubics of S then use the blowdown to map them to the plane
+  // together with the base points, this usually gives enough points to solve the interpolation for the coresponding cubic form
+  // We then scale each of these cubics so that the blowup map defined by them sends these sample points back up to where they were originally.
+  pi:=S`blowdown;
+  ptsP3:=points_on_coordinate_cubics(S);
+  ptsP2:=[[ pi(point) : point in ptsP3[i]]  : i in [1..4]];
+  forms:=[]; 
+  for i in [1..4] do
+    pp:=Setseq(Seqset(ptsP2[i] cat [[1,0,0],[0,1,0],[0,0,1],[1,1,1]]));
+    forms[i]:= reconstruct_form(pp,3);
+  end for;
+  phi:=func<pt| [Evaluate(form,pt) : form in forms]>;
+  // we now have the forms up to scaling, in order to find the correct scalar (lambda) we find some sample points up in S we used to construct the forms. These points are always on coordinate lines, so we can get exactly one value of lambda from each. The first scalar can of course be assumed to be one.
+  sample:=[]; updown:=[];
+  lambda:=[S`field|1];
+  allpts:=&cat(ptsP3);
+  are_these_coordinates_nonzero:=func<point,index_set| not &or[ S`is_zero(point[i]) : i in index_set]>;
+  for j in [2,3,4] do
+    sample[j] := Representative({pt: pt in allpts| are_these_coordinates_nonzero(pt,{1,j})});
+    sample[j] := homogenize_coordinate(sample[j],S`tolerance);
+    updown[j]:=homogenize_coordinate(phi(pi(sample[j])),S`tolerance);
+    lambda[j]:=sample[j][j]/updown[j][j];
+  end for;
+  scaled_forms:=[lambda[i]*forms[i] : i in [1..4]];
+  scaled_forms:=[clean_almost_zero_terms(form,S`tolerance) : form in scaled_forms];
+  // the blow-up function is now formed by these cubics
+  blowup:=func<pt| homogenize_coordinate([Evaluate(scaled_forms[i],pt) : i in [1..4]],S`tolerance)>;
+  rndmpts:=[blowup([Random(-10,10),Random(-10,10),Random(-10,10)]) : i in [1..30]];
+  if check_answer then
+    f1:=reconstruct_form(rndmpts,3);
+    f2:=Parent(f1)!S`equation;
+    c1:=homogenize_coordinate(Coefficients(f1),S`tolerance);
+    c2:=homogenize_coordinate(Coefficients(f2),S`tolerance);
+    assert &and[S`is_zero(c1[i]-c1[i]) : i in [1..#c1]]; // checking if the image of blowup is indeed our cubic
+  end if;
+
+  return blowup,scaled_forms;
+end intrinsic;
+
+intrinsic clean_almost_zero_terms(form::RngMPolElt, tolerance::RngIntElt) -> SeqEnum
+{
+  Given a form, sets the coefficients with valuation higher than tolerance to zero.
+}
+  R:=Parent(form); d:=Degree(form);
+  mons:=MonomialsOfDegree(R,d);
+  cofs:=[ MonomialCoefficient(form,m) : m in mons];
+  cofs:=[ Valuation(c) gt tolerance select 0 else c : c in cofs ];
+  return &+[ cofs[i]*mons[i]: i in [1..#cofs]];
+end intrinsic;
+
+
+///////////////////////////////////////////////////////////////
+// String processing for Marta's script coming from polymake //
+///////////////////////////////////////////////////////////////
+
+
+// this could be vastly extended later on
+// for now I'm only storing the coef vector, and the rigid/moving lines inside (via their vertices)
+tropicalCubic:=recformat<coefficients:SeqEnum, num_rigid:RngIntElt, num_moving:RngIntElt, rigids:SetEnum, moving:SetEnum>;
+intrinsic read_tropical_output(filename::MonStgElt : folder:="./database/") -> Rec
+{
+  Processes the text given by Marta's script and creates a tropical cubic record using the position of the vertices of the lines. Lines are seperated into rigid and moving, the moving ones remember which vertex moves and in what direction.
+}
+  tropS:=rec<tropicalCubic|>;
+  if folder[#folder] ne "/" then
+    folder:=folder*"/";
+  end if;
+  newfile:=folder*"processed-"*filename;
+  System("./database/process "*folder*filename*" > "*newfile);
+  of:=Open(newfile,"r");
+  tropS`coefficients:=eval(Gets(of));
+  tropS`num_rigid:=(eval(Gets(of)))[1];
+  tropS`num_moving:=(eval(Gets(of)))[1];
+  tropS`rigids:={};
+  for i in [1..tropS`num_rigid] do
+    col1:=eval(Gets(of));
+    col2:=eval(Gets(of));
+    Include(~tropS`rigids,Matrix(2,4,[col1,col2]));
+  end for;
+  moving:=[[Matrix(2,4,[eval(Gets(of)),eval(Gets(of))])] : i in [1..tropS`num_moving]];
+  for i in [1..tropS`num_moving] do
+    moving[i,2]:=Matrix(2,4,[eval(Gets(of)),eval(Gets(of))]);
+  end for;
+  tropS`moving:=Seqset(moving);
+  // todo: have a function which takes each line and outputs whether it is in there and if it moves
+  return tropS;
+end intrinsic;
+
+intrinsic contained_in_moving_line(moving_line::SeqEnum,line::SeqEnum) -> BoolElt
+{
+  Given a moving line, which is a sequence containing two 2x4 matrices storing a representative vertex pair and the directions of movements, and a line (vertex pair) check if the line is contained in the family.
+}
+  base_line:=moving_line[1];
+  moving_direction:=Eltseq(moving_line[2]);
+  difference:=Eltseq(line-base_line);
+  return Rank(Matrix([moving_direction,difference])) eq 1;
+end intrinsic;
+
+// Getting the tropical tree arrangements
+// Each line intersects every other line at 10 distinct points (assuming no Eckhard points)
+// Tropicalization of a line with 10 distinct points gives a tree with 10 leaves
+// We compute this tree, in the form of splittings: partitions of leaves that are disconnected by removing a "finite" edge.
+// We do this by projecting the tree (in P9) to P3, deduce its type there and recover the original tree by "quartet puzzling"
+
+
+intrinsic intersection_point(L1::ModMatRngElt,L2::ModMatRngElt) -> SeqEnum
+{
+ Each Li is a 2x4 matrix representing two points in P3 spanning a line. We output the intersection L1 of L2 in the coordinates of L1 (wrt the two vectors in L1).
+}
+    M:=VerticalJoin(L1,L2);
+    K:=Kernel(M);
+    assert Dimension(K) eq 1;
+    k:=Basis(K)[1];
+    return Eltseq(k)[1..2];
+end intrinsic;
+
+intrinsic name_of_line(S::Rec,number::Any) -> MonStgElt
+{ 
+  What is the name (e.g. Ei,Fij,Gi) of the line? (given as a vertex of the adjacency graph)
+}
+  if number in S`e then
+    i:=Index(S`e,number);
+    return "E"*Sprint(i);
+  end if;
+  if number in S`q then
+    i:=Index(S`q,number);
+    return "G"*Sprint(i);
+  end if;
+  if number in &cat(S`l) then
+    k:=Index(&cat(S`l),number);
+    i:=Ceiling(k/6);
+    j:=((k mod 6) eq 0) select 6 else (k mod 6);
+    return "F"*Sprint(i)*Sprint(j);
+  end if;
+end intrinsic;
+
+intrinsic type_of_line(tropical_grassmanian_coordinate::SeqEnum : labels:=[1,2,3,4]) -> SetEnum
+{
+  Input: a sequence of size 6 encoding the tropical coordintes of a line in P3, with the option of labelling the "leaves", or equivalently, of the coordinate planes. Returns the partitioning of the leaves, allowing for the full partition corresponding to the star.
+}
+  assert #labels eq 4; // labels for the coordinate axes
+  w12,w13,w14,w23,w24,w34:=Explode(tropical_grassmanian_coordinate);
+  a:=w12+w34;
+  b:=w13+w24;
+  c:=w14+w23;
+  if (a eq b) and (a eq c) then
+    return {Seqset(labels)};
+  end if;
+  if a eq b then 
+    return {{labels[1],labels[4]},{labels[2],labels[3]}};
+  elif a eq c then 
+    return {{labels[1],labels[3]},{labels[2],labels[4]}};
+  else 
+    return {{labels[1],labels[2]},{labels[3],labels[4]}};
+  end if;
+end intrinsic;
+
+
+intrinsic get_quartets(S::Any,i::RngIntElt) -> SeqEnum, SeqEnum
+{
+  Get the quartets associated to the i-th line in S.
+}
+  G:=S`adjacency;
+  V:=Sort(Vertices(G));
+  v:=V[i];
+  N:=Sort(Setseq(Neighbours(v)));
+  M:=Matrix([intersection_point(Label(v),Label(n)) : n in N]); // 10x2 matrix
+  q:=get_quartets(Transpose(M), S`valuate);
+  return q,[{{N[j] : j in qqq}:qqq in qq}: qq in q];
+end intrinsic;
+
+intrinsic get_quartets(line_in_P9::ModMatRngElt, valuate::UserProgram) -> SeqEnum
+{
+  Input: 2x10 matrix representing a line in P9 over p-adics.
+  Output: the quartet splittings, the (2,2) or (4) partitions of the projected tropicalized lines to P3
+}
+// input: 2x10 matrix, giving a line, over p-adics
+// output: computes all projections to coordinates spaces and the type of space line
+// tuples
+  tuples:=[[i,j,k,l] : i,j,k,l in [1..10] | (i lt j) and (j lt k) and (k lt l)];
+  M:=Transpose(line_in_P9);
+  subminors:=[**];
+  for tuple in tuples do
+    i,j,k,l := Explode(tuple);
+    pairs:=[[i,j],[i,k],[i,l],[j,k],[j,l],[k,l]];
+    Append(~subminors,[valuate(Determinant(Matrix(M[pair]))) : pair in pairs]);
+  end for;
+  return [type_of_line(subminors[i] : labels:=tuples[i]) : i in [1..#tuples]];
+end intrinsic;
+
+
+intrinsic possible_splits(base_set::SetEnum) -> SetEnum
+{
+  Pairs of complementary subsets of base_set, where both subsets must have size at least 2.
+}
+  assert #base_set gt 3;
+  sets:=&join[ Subsets(base_set,k) : k in [2..Floor(#base_set/2)]];
+  return {{s,base_set diff s} : s in sets};
+end intrinsic;
+
+intrinsic quartet_puzzling(quartets::SeqEnum : base_set:={1..10}) -> SetEnum
+{
+  Puzzle together the quartets to get the splittings.
+}
+  splits:=possible_splits(base_set); 
+  for quartet in quartets do
+    splits:={split : split in splits | not &and[&and[#(quart meet ss) eq Integers()!(#quart/2) : ss in split] : quart in quartet]};
+  end for;
+  return splits;
+end intrinsic;
+
+intrinsic tropicalize_line_in_cubic(S::Rec,line_number::RngIntElt) -> Any
+{
+  Tropicalize the line S`lines[line_number] in terms of its intersection points with other lines. The output is the set of splits of the corresponding tree (the line in P9), where leaves are marked with lines intersecting the given line.
+}
+  G:=S`adjacency;
+  V:=Sort(Vertices(G));
+  v:=V[line_number];
+  all_splits:=[];
+  N:=Sort(Setseq(Neighbours(v)));
+  M:=Matrix([intersection_point(Label(v),Label(n)) : n in N]); // 10x2 matrix
+  splits:=quartet_puzzling(get_quartets(Transpose(M), S`valuate));
+  splits_labelled:= [[[N[i] : i in s] : s in split] : split in splits];
+  splits_named:= [[[name_of_line(S,N[i]) : i in s] : s in split] : split in splits];
+  return splits_labelled,splits_named;
+end intrinsic;
+
+
+
+intrinsic distinct_valued_permutations(S::Rec : with_cubics:=true) -> SeqEnum
+{
+  Finds permutations of the six points in the marked plane for which the six triplets of valuations are distincts. If with_cubics then modifies the cubic forms used in the blow-up appropriately.
+}
+  M:=Transpose(Matrix(S`points));
+  inv:=func<mat|Determinant(mat)^-1 * Adjoint(mat)>;
+  inds:=[[i,j,k] : i,j,k in [1..6] | (i lt j) and (j lt k) ];
+  distincts:=[];
+  for ind in inds do
+    minor:=Submatrix(M,[1,2,3],ind);
+    new_pts:=inv(minor)*M;
+    trop_pts:=Transpose(Matrix(3,6,[S`valuate_no_inf(e):e in Eltseq(new_pts)]));
+    if &and[trop_pts[i] ne trop_pts[j] : i,j in [1..6] | i gt j] then
+      if with_cubics then
+        P:=Parent(S`blowup_cubics[1]);
+        coords:=Eltseq(ChangeRing(minor,P)*Matrix(3,1,[P.1,P.2,P.3]));
+        cubics:=[Evaluate(cubic,coords) : cubic in S`blowup_cubics];
+        mons:=MonomialsOfDegree(P,3);
+        valuations:=Matrix([[ S`valuate_no_inf(MonomialCoefficient(c,m)) : m in mons] : c in cubics]);
+        Append(~distincts,[*ind,trop_pts,Transpose(new_pts),cubics,valuations*]);
+      else 
+        Append(~distincts,[*ind,trop_pts,Transpose(new_pts)*]);
+      end if;
+    end if;
+  end for;
+  return distincts;
+end intrinsic;
+
+intrinsic encode_split(split::Any) -> Any
+{
+  Statistics for the splittings on a tree.
+}
+  s:=[0 : i in [2..5]];
+  for sp in split do
+    ss:=Random(sp);
+    n:=(#ss gt 5) select (10-#ss) else #ss;
+    s[n-1]:=s[n-1]+1;
+  end for;
+  return s;
+end intrinsic;
+
+// For low m, this may find some things that don't work well, for instance if a,b below has high valuation
+intrinsic pAdicNearestRational(xi::FldPadElt,m::RngIntElt) -> FldRatElt
+{
+xi in Qp, m is the desired degree of approx. Returns x/y in Q such that val(x-y*xi) >= m and (x,y) in ZZ^2 is small.
+}
+  F:=Parent(xi);
+  prec:=F`DefaultPrecision;
+  n:=(Valuation(xi) lt 0) select -Valuation(xi) else 0; // used to clear powers of p from denom of xi
+  if m+n gt prec then
+    error "Decrease the desired precision by "*Sprint(m+n-prec);
+  end if;
+  assert m+n le prec;
+  p:=Integers()!UniformizingElement(F);
+  mu:=p^n*xi; // now a p-adic integer
+  murounded:=Integers()!(pAdicField(p,m+n)!mu);
+  M:=Matrix([[p^(m+n), 0 ], [murounded,-1]]);
+  a,b:=Explode(Eltseq(LLL(M)[1]));
+  return -a/b*p^-n;
+end intrinsic;
+
+intrinsic castPAdicNumberToRationals(xi::FldPadElt,m::RngIntElt) -> FldRatElt
+{
+xi in Qp, m is the desired degree of approx. Returns the rational number r in Q obtained by summing up the laurent series of xi truncated from p^m onwards (i.e. val(xi-r)>=m) 
+}
+  F:=Parent(xi);
+  prec:=F`DefaultPrecision;
+  n:=(Valuation(xi) lt 0) select -Valuation(xi) else 0; // used to clear powers of p from denom of xi
+  if m+n gt prec then
+    error "Decrease the desired precision by "*Sprint(m+n-prec);
+  end if;
+  assert m+n le prec;
+  p:=Integers()!UniformizingElement(F);
+  mu:=p^n*xi; // now a p-adic integer
+  murounded:=Integers()!(pAdicField(p,m+n)!mu);
+  return murounded/p^n;
+end intrinsic;
+
+
+intrinsic padic_to_power_series(num::FldPadElt,terms::RngIntElt) -> MonStgElt
+{
+  Computes a p-adic expansion of "num" to "term" number of terms and prints it out as a string.
+}
+  seq:=[];
+  p:=Prime(Parent(num));
+  val0:=Valuation(num);
+  newt:=num*p^-val0;
+  for i in [1..terms] do
+    val:=Valuation(newt);
+    res:=Integers()!(newt*p^-val) mod p;
+    Append(~seq,[res,val+val0]);
+    newt:=newt-res*p^val;
+  end for;
+  if val0 ne 0 then
+    pre:=Sprint(p)*"^"*Sprint(val0)*"*(";
+    last:=")";
+  else
+    pre:=""; last:="";
+  end if;
+  return pre*&*[Sprint(s[1])*"*"*Sprint(p)*"^"*Sprint(s[2]-val0)*" + " : s in seq]*"..."*last,seq;
+end intrinsic;
+
+
+intrinsic find_cubic_surface(cubic_forms::SeqEnum : ring:=PolynomialRing(Rationals(),4)) -> RngMPolElt
+{
+takes 4 cubic forms in three variables with rational coefficients passing through 6 points in general position,
+computes the image cubic surface in P3.
+}
+  mons:=MonomialsOfDegree(ring,3);
+  count:=0;
+  repeat 
+    count +:=1;
+    rndmpts:=[[Random(-10,10) : i in [1..3]] : j in [1..20]];
+    imagepts:=[ [Evaluate(cubic,pt) : cubic in cubic_forms] : pt in rndmpts];
+    M:=Transpose(Matrix([[Evaluate(m,pt): m in mons]: pt in imagepts]));
+    if count gt 50 then error "cubics are not passing through six general points"; end if;
+  until Rank(M) eq 19;
+  k:=Eltseq(Basis(Kernel(M))[1]);
+  return &+[ k[i]*mons[i]  : i in [1..20]];
+end intrinsic;
+
+
+intrinsic padic_approximation(U::SeqEnum,m::RngIntElt,p::RngIntElt) -> SeqEnum, Any, Any
+{
+U is a list of lists, representing a list of vectors with rational entries
+finds a "small" rational combination of the first entries of U that is p-adically close to being the last entry in U
+small means distance less than p^-m in the p-adic norm
+returns this approaximation, and the coordinates of the projection in terms of the given basis and an intermediate lattice used 
+}
+  a:=#U[1]; // size of vectors
+  b:=#U; // number of vectors
+  block11:= p^m*IdentityMatrix(Integers(),a);
+  block12:=Matrix(a,b,[0 : i in [1..a*b]]);
+  block21:=ChangeRing(Matrix(U),Integers());
+  block22:=IdentityMatrix(Integers(),b);
+  M:=VerticalJoin(HorizontalJoin(block11,block12),HorizontalJoin(block21,block22));
+  LM:=LLL(M);
+  N1:=Submatrix(LM,1,1,a+b,a);  N2:=Submatrix(LM,1,a+1,a+b,b);
+  K:=Basis(Kernel(N1));
+  lat:=LLL(Matrix([k*N2 : k in K]));
+  assert Transpose(lat)[1] ne 0;
+  l:=[l : l in RowSequence(lat) | l[#l] ne 0][1];
+  ll:=1/l[#l]*ChangeRing(Matrix([l[1..(#l-1)]]),Rationals());
+  return Eltseq(ll*ChangeRing(Matrix(U[1..(b-1)]),Rationals())), ll,lat;
+end intrinsic;
+
+
+intrinsic normalize(w::ModTupFldElt) -> ModTupFldElt, RngIntElt
+{
+  Takes a vector in a vectorspace over a valued field, scales this vector by the inverse of the entry that has the smallest norm (to minimize numerical errors).
+}
+  V:=Parent(w);
+  minval,i:=Minimum([Valuation(ww) : ww in Eltseq(w)]);
+  return V![w[i]^-1*ww : ww in Eltseq(w)], minval;
+end intrinsic;
+
+
+intrinsic residue(w::ModTupFldElt) -> SeqEnum
+{
+  Takes a p-adic vector and returns a list representing the mod p residue of the entries.
+}
+  p:=Prime(Field(Parent(w)));
+  return [FiniteField(p)|(Integers()!ww) mod p : ww in Eltseq(w)];
+end intrinsic;
+
+intrinsic project_using_orhonormalized_basis(vecs::SeqEnum,w::ModTupFldElt) -> SeqEnum, ModTupFldElt, RngIntElt
+{
+Takes a sequence of *orthonormal* elements "vecs" and a vector "w" not contained in their span, it is the users responsibility to make sure these assumptions hold. It outputs an orthonormal basis extending vecs to the space spanned by vecs and w, the projection of w onto vecs, and the -log_p of the distance of w to the span of vecs.
+}
+  M:=Matrix([residue(v) : v in vecs]);
+  s:=#vecs; n:=Dimension(Parent(vecs[1]));
+  indices:=CartesianPower([1..n],s);
+  count:=0; I:=[1..s];
+  for J in indices do
+    Jseq:=[i : i in TupleToList(J)];
+    minor:=Minor(M,I,Jseq);
+    if minor ne 0 then
+      break J;
+    end if;
+  end for;
+  N:=Submatrix(Matrix(vecs cat [-w]),I cat [s+1],Jseq);
+  K:=Basis(Kernel(N));
+  assert #K eq 1; k:=Eltseq(K[1]);
+  projection:=&+[k[i]/k[#k]*vecs[i] : i in [1..s]];
+  orthogonal_part,logdist:=normalize(w-projection);
+  return vecs cat [orthogonal_part], projection,logdist;
+end intrinsic;
+
+
+intrinsic orthonormalize(vecs::SeqEnum) -> SeqEnum
+{
+  input: v a linearly independent sequence of vectors over a pAdic field
+ output: orthonomalization of this sequence
+}
+  V:=Parent(vecs[1]); W:=sub<V|vecs>; assert Dimension(W) eq #vecs;
+  orthovecs:=[normalize(vecs[1])];
+  for i in [2..#vecs] do
+    orthovecs:=project_using_orhonormalized_basis(orthovecs,vecs[i]);
+  end for;
+  return orthovecs;
+end intrinsic;
+
+
+intrinsic perturb(S::Any,precision::RngIntElt : internal_precision:=3*precision) -> RngMPolElt, SeqEnum, SeqEnum, RngIntElt
+{
+  Takes a pAdicMarkedCubic with blowdown and blowup computed. Takes a rational approximation of the six points in P2 to p-adic "precision" and projects the cubic curves to the space of rational cubics passing through the new points. It outputs the equation of the resulting cubic surface, the list of new cubic curves and a measure which is zero if the valuation of the coefficients of the new and old cubic surfaces agree (after rescaling).
+}
+  prec1:=precision; // precision to round the points
+  prec2:=internal_precision; // precision in working with the plane cubics and projecting them
+  assert assigned S`blowup_cubics; // makes sure blowup has been computed
+  cubics:=S`blowup_cubics;
+  pts:=S`points;
+  p:=S`p;
+  roundpts:=[[castPAdicNumberToRationals(pp,prec1) : pp in pt] : pt in pts];
+  R<z0,z1,z2>:=PolynomialRing(Rationals(),3);
+  mons:=Setseq(MonomialsOfDegree(R,3));
+  mat:=Matrix([[ Evaluate(m,pt) : pt in roundpts] : m in mons]);
+  B:=Basis(Kernel(mat));
+  Bint:=[Eltseq(ClearDenominator(b)) : b in B];
+  Qp:=pAdicField(p : Precision:=prec2);
+  V:=VectorSpace(Qp,10);
+  vecs:=[V!b : b in Bint];
+  ov:=orthonormalize(vecs);
+  projected_cubics:=[];
+  for cubic in cubics do
+    w:=V![MonomialCoefficient(R!cubic,m) : m in mons];
+    _,projc,logdist:=project_using_orhonormalized_basis(ov,w);
+    //print "logdist: "*Sprint(logdist);
+    //Minimum([Valuation(ww) : ww in Eltseq(ovw[#ovw])]); // the log of distance
+    Append(~projected_cubics,projc);
+  end for;
+  round_cubics:=[[(Rationals()!c[i]) : i in [1..10] ] : c in projected_cubics];
+  denoms:=[];
+  for i in [1..4] do
+    round_cubic_int,denoms[i]:=ClearDenominator(Matrix([round_cubics[i]]));
+    round_cubics[i]:=Eltseq(round_cubic_int);
+  end for;
+  newcubics:=[];
+  for i in [1..4] do
+    pr:=padic_approximation(Bint cat [round_cubics[i]],Round(prec2*1.8),p);
+    newcubics[i]:=&+[(Rationals()!pr[j])*mons[j] : j in [1..10] ]/denoms[i];
+  end for;
+  P<w,x,y,z>:=PolynomialRing(Rationals(),4);
+  g:=find_cubic_surface(newcubics : ring:=P); 
+  // clear denominators
+  cofs,mons:=CoefficientsAndMonomials(g);
+  cofs:=Eltseq(ClearDenominator(Matrix([cofs])));
+  g:=&+[cofs[i]*mons[i] : i in [1..#cofs]];
+  // check if coefficients match the old cubic
+  newcofs:=[Valuation(MonomialCoefficient(g,m),p) : m in MonomialsOfDegree(P,3)];
+  cofs:=[Valuation(MonomialCoefficient(P!S`equation,m),p) : m in MonomialsOfDegree(P,3)];
+  newcofs:=[cofs[1]-newcofs[1] + n : n in newcofs]; // "homogenize"
+  err:=&+[Abs(newcofs[i]-cofs[i]) : i in [1..#cofs]];
+  if err ne 0 then
+    print "The input precision seems to be too low to get a cubic with the same coefficient valuations.";
+  end if; 
+  return g,roundpts,newcubics,err;
+end intrinsic;
