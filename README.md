@@ -48,3 +48,24 @@ You can also "perturb" the six base points in P2, and the cubics passing through
     Magma> g,newpts,cubs,err:=perturb(S,14 : internal_precision:=20); 
 
 Here `g` is the new cubic surface, `newpts` are the six new points in `P2` rounded from the old ones while keeping `14` digits of p-adic presecision, `cubs` are the cubic curves through them and `err` is the difference in the valuation of the coefficients of `g` and `f`. If `err` is not zero, try again by increasing the two precisions `14` and `20`; the former governs the height of the points and the latter the height of the cubic curves through them.
+
+## Non-dense cubics
+
+In case you want to compute the lines in a cubic surface which has all its lines in Qp, but the equation is not dense (e.g. octanomials) then you can do the following:
+
+    Magma> f:=4*w^2*x + w*x*y + w*x*z + 2*w*y*z + w*z^2 + 8*x^2*y + 2*x*y*z + y^2*z;
+    Magma> S:=pAdicCubicSurface(f,2: with_blowup:=false);
+
+The with the blow-up computation turned off, we can handle non-dense cubics.
+
+## Accessing the lines
+
+The lines of `S` are stored in a list consisting of 27 matricies of size 2x4. For each matrix, the rows span the corresponding line. 
+
+    Magma> S`lines;
+
+We also impose a labelling on the lines. The exceptional lines and all the others can be viewed by:
+
+    Magma> S`e; S`l; S`q;
+
+Where the third entry in `e` is the index of the line `E3` inside the list `lines`;
